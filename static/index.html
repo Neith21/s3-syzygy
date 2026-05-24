@@ -9,7 +9,588 @@
     img  { border-radius: 8px; max-width: 400px; }
     button { padding: 8px 20px; cursor: pointer; }
   </style>
+</head><!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Subir imagen a S3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f2ed;
+      --ink: #1a1814;
+      --muted: #7a7570;
+      --rule: #d6d0c8;
+      --accent: #c8401a;
+      --drop-bg: #edeae4;
+      --drop-border: #b8b2a8;
+      --sw-bg: #08070a;
+      --sw-gold: #d4aa4a;
+      --sw-gold-dim: #9a7a2e;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Mono', monospace;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+
+    /* ─── NAV ───────────────────────────────────────── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 3rem;
+      height: 56px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .nav-brand {
+      font-family: 'Libre Baskerville', serif;
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    .nav-links { display: flex; gap: 2.5rem; list-style: none; }
+
+    .nav-links a {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-decoration: none;
+      color: var(--muted);
+      transition: color 0.2s;
+      position: relative;
+    }
+
+    .nav-links a::after {
+      content: '';
+      position: absolute; bottom: -2px; left: 0; right: 0;
+      height: 1px; background: var(--accent);
+      transform: scaleX(0); transform-origin: left;
+      transition: transform 0.25s ease;
+    }
+
+    .nav-links a:hover { color: var(--ink); }
+    .nav-links a:hover::after { transform: scaleX(1); }
+
+    /* ─── SECTIONS ──────────────────────────────────── */
+    section {
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 5rem 2rem 3rem;
+    }
+
+    /* ─── UPLOAD SECTION ────────────────────────────── */
+    #upload {
+      gap: 0;
+    }
+
+    .upload-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .upload-header small {
+      display: block;
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .upload-header h1 {
+      font-family: 'Libre Baskerville', serif;
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+
+    .upload-header h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      width: min(480px, 100%);
+      border: 1.5px dashed var(--drop-border);
+      border-radius: 4px;
+      background: var(--drop-bg);
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+      outline: none;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: #ece7df;
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0;
+      opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+
+    .drop-icon {
+      width: 40px; height: 40px;
+      margin: 0 auto 1rem;
+      color: var(--muted);
+      transition: color 0.2s, transform 0.2s;
+    }
+
+    .drop-zone:hover .drop-icon { color: var(--accent); transform: translateY(-3px); }
+
+    .drop-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .drop-label strong {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--ink);
+      font-weight: 500;
+      margin-bottom: 0.2rem;
+    }
+
+    /* File chosen state */
+    .file-chosen {
+      display: none;
+      align-items: center; gap: 0.75rem;
+      margin-top: 1.25rem;
+      padding: 0.7rem 1rem;
+      background: #e8e3db;
+      border-radius: 3px;
+      width: min(480px, 100%);
+    }
+
+    .file-chosen.visible { display: flex; }
+
+    .file-thumb {
+      width: 40px; height: 40px;
+      border-radius: 2px;
+      object-fit: cover;
+      background: var(--rule);
+    }
+
+    .file-info { flex: 1; overflow: hidden; }
+
+    .file-name {
+      font-size: 0.75rem;
+      font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .file-size { font-size: 0.65rem; color: var(--muted); margin-top: 0.1rem; }
+
+    .btn-remove {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 1.1rem; line-height: 1;
+      padding: 0.2rem; transition: color 0.2s;
+    }
+    .btn-remove:hover { color: var(--accent); }
+
+    /* Submit button */
+    .btn-submit {
+      margin-top: 1.5rem;
+      padding: 0.75rem 2.5rem;
+      background: var(--ink);
+      color: var(--bg);
+      border: 1.5px solid var(--ink);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-submit:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-submit .spinner {
+      display: none;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+
+    .btn-submit.loading .spinner { display: inline-block; }
+    .btn-submit.loading .label { opacity: 0.5; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Preview image */
+    #preview-result {
+      display: none;
+      margin-top: 2rem;
+      text-align: center;
+      animation: fadeUp 0.4s ease both;
+    }
+
+    #preview-result.visible { display: block; }
+
+    #preview-result img {
+      max-width: min(420px, 100%);
+      border-radius: 4px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+    }
+
+    #preview-result p {
+      margin-top: 0.6rem;
+      font-size: 0.68rem;
+      color: var(--muted);
+    }
+
+    #preview-result a { color: var(--accent); text-decoration: none; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── INTEGRANTES / STAR WARS ───────────────────── */
+    #integrantes {
+      background: var(--sw-bg);
+      padding: 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Perspective container */
+    .sw-scene {
+      width: 100%; height: 100vh;
+      display: flex; align-items: flex-end; justify-content: center;
+      perspective: 750px;
+      perspective-origin: 50% 100%;
+      overflow: hidden;
+    }
+
+    /* Top & bottom fade masks */
+    .sw-scene::before,
+    .sw-scene::after {
+      content: ''; position: absolute; left: 0; right: 0; z-index: 2; pointer-events: none;
+    }
+    .sw-scene::before {
+      top: 0; height: 35%;
+      background: linear-gradient(to bottom, var(--sw-bg) 20%, transparent);
+    }
+    .sw-scene::after {
+      bottom: 0; height: 15%;
+      background: linear-gradient(to top, var(--sw-bg) 10%, transparent);
+    }
+
+    /* The tilted crawl plane */
+    .sw-crawl {
+      width: 75%;
+      max-width: 680px;
+      transform-origin: bottom center;
+      text-align: center;
+      position: relative; z-index: 1;
+      animation: crawl 40s linear infinite;
+    }
+
+    @keyframes crawl {
+      0%   { transform: rotateX(20deg) translateY(110vh); }
+      100% { transform: rotateX(20deg) translateY(-320vh); }
+    }
+
+    .sw-title-card {
+      margin-bottom: 4rem;
+      color: var(--sw-gold-dim);
+    }
+
+    .sw-title-card .sw-episode {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      opacity: 0.6;
+      margin-bottom: 1.2rem;
+    }
+
+    .sw-title-card h2 {
+      font-family: 'Libre Baskerville', serif;
+      font-size: clamp(2.2rem, 5vw, 3.4rem);
+      font-weight: 700;
+      line-height: 1.15;
+      color: var(--sw-gold);
+      text-shadow: 0 0 50px rgba(212,170,74,0.5);
+      margin-bottom: 1.4rem;
+    }
+
+    .sw-title-card .sw-subtitle {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.88rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.55;
+    }
+
+    .sw-divider {
+      width: 50px; height: 1px;
+      background: var(--sw-gold-dim);
+      margin: 3rem auto;
+      opacity: 0.4;
+    }
+
+    .sw-member {
+      margin-bottom: 3.8rem;
+      color: var(--sw-gold);
+    }
+
+    .sw-member .sw-name {
+      font-family: 'Libre Baskerville', serif;
+      font-size: clamp(1.4rem, 3.5vw, 2rem);
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      line-height: 1.3;
+      text-shadow: 0 0 30px rgba(212,170,74,0.4);
+    }
+
+    .sw-member .sw-id {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.22em;
+      color: var(--sw-gold-dim);
+      margin-top: 0.5rem;
+      font-size: 0.82rem;
+      opacity: 0.7;
+    }
+
+    .sw-end {
+      padding-top: 4rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--sw-gold-dim);
+      opacity: 0.35;
+    }
+
+    /* Stars background */
+    .stars {
+      position: absolute; inset: 0; z-index: 0;
+      background-image:
+        radial-gradient(1px 1px at 15% 20%, rgba(212,170,74,0.4) 0%, transparent 100%),
+        radial-gradient(1px 1px at 40% 60%, rgba(255,255,255,0.15) 0%, transparent 100%),
+        radial-gradient(1px 1px at 70% 10%, rgba(255,255,255,0.1) 0%, transparent 100%),
+        radial-gradient(1px 1px at 85% 45%, rgba(212,170,74,0.2) 0%, transparent 100%),
+        radial-gradient(1px 1px at 25% 80%, rgba(255,255,255,0.12) 0%, transparent 100%),
+        radial-gradient(1px 1px at 60% 35%, rgba(255,255,255,0.08) 0%, transparent 100%),
+        radial-gradient(1.5px 1.5px at 90% 70%, rgba(212,170,74,0.25) 0%, transparent 100%),
+        radial-gradient(1px 1px at 5% 55%, rgba(255,255,255,0.1) 0%, transparent 100%),
+        radial-gradient(1px 1px at 50% 90%, rgba(255,255,255,0.08) 0%, transparent 100%);
+    }
+  </style>
 </head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <a href="#upload" class="nav-brand">S3 Upload</a>
+    <ul class="nav-links">
+      <li><a href="#upload">Subir archivo</a></li>
+      <li><a href="#integrantes">Integrantes</a></li>
+    </ul>
+  </nav>
+
+  <!-- UPLOAD SECTION -->
+  <section id="upload">
+    <div class="upload-header">
+      <small>Almacenamiento · AWS S3</small>
+      <h1>Sube tu <em>imagen</em><br>al servidor</h1>
+    </div>
+
+    <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Zona de carga">
+      <!-- Upload icon -->
+      <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+      </svg>
+      <div class="drop-label">
+        <strong>Arrastra tu imagen aqu&iacute;</strong>
+        o haz clic para seleccionar
+      </div>
+      <input type="file" id="imageInput" accept="image/*" />
+    </div>
+
+    <div class="file-chosen" id="fileChosen">
+      <img class="file-thumb" id="fileThumb" src="" alt="preview" />
+      <div class="file-info">
+        <div class="file-name" id="fileName">—</div>
+        <div class="file-size" id="fileSize">—</div>
+      </div>
+      <button class="btn-remove" id="removeFile" title="Quitar archivo">✕</button>
+    </div>
+
+    <button class="btn-submit" id="submitBtn" disabled>
+      <span class="spinner"></span>
+      <span class="label">Subir imagen</span>
+    </button>
+
+    <div id="preview-result">
+      <img id="resultImg" src="" alt="Imagen subida" />
+      <p>Subida exitosa · <a id="resultLink" href="#" target="_blank">Abrir URL</a></p>
+    </div>
+  </section>
+
+  <!-- INTEGRANTES SECTION -->
+  <section id="integrantes">
+    <div class="stars"></div>
+    <div class="sw-scene">
+      <div class="sw-crawl">
+
+        <div class="sw-title-card">
+          <div class="sw-episode">Proyecto Final · 2024</div>
+          <h2>Gesti&oacute;n de<br>Im&aacute;genes en la Nube</h2>
+          <div class="sw-subtitle">Integraci&oacute;n con AWS S3</div>
+        </div>
+
+        <div class="sw-divider"></div>
+
+        <div class="sw-member">
+          <div class="sw-name">Ch&aacute;vez Torres<br>Cristi&aacute;n Ariel</div>
+          <div class="sw-id">U20210463</div>
+        </div>
+
+        <div class="sw-member">
+          <div class="sw-name">Fagoaga Guevara<br>Junior Aaron</div>
+          <div class="sw-id">U20210154</div>
+        </div>
+
+        <div class="sw-member">
+          <div class="sw-name">Guerrero Molina<br>Carlos David</div>
+          <div class="sw-id">U20210475</div>
+        </div>
+
+        <div class="sw-member">
+          <div class="sw-name">Montoya S&aacute;nchez<br>Josu&eacute; Exequiel</div>
+          <div class="sw-id">U20210157</div>
+        </div>
+
+        <div class="sw-member">
+          <div class="sw-name">Rodr&iacute;guez Ortiz<br>Williams Ernesto</div>
+          <div class="sw-id">U20210444</div>
+        </div>
+
+        <div class="sw-divider"></div>
+        <div class="sw-end">fin · the end</div>
+
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const dropZone   = document.getElementById('dropZone');
+    const imageInput = document.getElementById('imageInput');
+    const fileChosen = document.getElementById('fileChosen');
+    const fileThumb  = document.getElementById('fileThumb');
+    const fileName   = document.getElementById('fileName');
+    const fileSize   = document.getElementById('fileSize');
+    const removeFile = document.getElementById('removeFile');
+    const submitBtn  = document.getElementById('submitBtn');
+    const previewRes = document.getElementById('preview-result');
+    const resultImg  = document.getElementById('resultImg');
+    const resultLink = document.getElementById('resultLink');
+
+    let selectedFile = null;
+
+    function formatBytes(b) {
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      return (b / 1048576).toFixed(1) + ' MB';
+    }
+
+    function showFile(file) {
+      selectedFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+      const reader = new FileReader();
+      reader.onload = e => { fileThumb.src = e.target.result; };
+      reader.readAsDataURL(file);
+      fileChosen.classList.add('visible');
+      submitBtn.disabled = false;
+    }
+
+    function clearFile() {
+      selectedFile = null;
+      imageInput.value = '';
+      fileChosen.classList.remove('visible');
+      submitBtn.disabled = true;
+      previewRes.classList.remove('visible');
+    }
+
+    imageInput.addEventListener('change', e => {
+      if (e.target.files[0]) showFile(e.target.files[0]);
+    });
+
+    removeFile.addEventListener('click', clearFile);
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) showFile(file);
+    });
+
+    submitBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      submitBtn.classList.add('loading');
+      submitBtn.disabled = true;
+
+      const formData = new FormData();
+      formData.append('image', selectedFile);
+
+      try {
+        const res  = await fetch('/api/s3', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+          resultImg.src       = data.data.url;
+          resultLink.href     = data.data.url;
+          previewRes.classList.add('visible');
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        submitBtn.classList.remove('loading');
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+
+</body>
+</html>
 <body>
   <h1>Subir imagen a S3</h1>
   <img id="preview" src="" alt="" style="display:none" />
