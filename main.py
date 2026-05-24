@@ -59,6 +59,7 @@ async def upload_image(image: UploadFile = File(...)):
         })
 
     except Exception as e:
+        print(f"ERROR: {e}")
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": str(e), "data": None},
